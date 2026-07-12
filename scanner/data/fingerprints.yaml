@@ -1,0 +1,323 @@
+# NetProbe Service Fingerprint Database
+# Inspired by Nmap's nmap-service-probes, simplified for maintainability.
+#
+# Structure:
+#   probes:
+#     - name: Probe identifier
+#       protocol: tcp | udp
+#       payload: Data sent to the service (supports \r\n escape sequences)
+#       ports: Optional list of ports this probe targets
+#       rarity: 1-9 (1 = very common, 9 = rare). Lower rarity probes run first.
+#       matches:
+#         - service: Service identifier
+#           pattern: Regex to match against the response
+#           product: Product name (may use regex groups $1, $2, etc.)
+#           version: Version string (may use regex groups)
+#           confidence: 0-100 confidence score for this match
+
+probes:
+  # ============================================================
+  # Stage 1: NULL Probe — connect and read whatever the service sends
+  # ============================================================
+  - name: "NULL"
+    protocol: tcp
+    payload: ""
+    rarity: 1
+    matches:
+      # SSH
+      - service: ssh
+        pattern: "^SSH-([\\d.]+)-OpenSSH[_-]([\\w.]+)"
+        product: "OpenSSH"
+        version: "$2"
+        confidence: 95
+
+      - service: ssh
+        pattern: "^SSH-([\\d.]+)-(.+)"
+        product: "$2"
+        version: "$1"
+        confidence: 85
+
+      # FTP
+      - service: ftp
+        pattern: "^220[- ].*\\b(vsftpd)\\s+([\\d.]+)"
+        product: "vsftpd"
+        version: "$2"
+        confidence: 95
+
+      - service: ftp
+        pattern: "^220[- ].*\\b(ProFTPD)\\s+([\\d.]+)"
+        product: "ProFTPD"
+        version: "$2"
+        confidence: 95
+
+      - service: ftp
+        pattern: "^220[- ].*\\b(Pure-FTPd)"
+        product: "Pure-FTPd"
+        confidence: 90
+
+      - service: ftp
+        pattern: "^220[- ].*FTP"
+        product: "FTP Server"
+        confidence: 70
+
+      # SMTP
+      - service: smtp
+        pattern: "^220[- ].*\\b(Postfix)"
+        product: "Postfix"
+        confidence: 90
+
+      - service: smtp
+        pattern: "^220[- ].*\\b(Exim)\\s+([\\d.]+)"
+        product: "Exim"
+        version: "$2"
+        confidence: 90
+
+      - service: smtp
+        pattern: "^220[- ].*ESMTP"
+        product: "SMTP Server"
+        confidence: 70
+
+      - service: smtp
+        pattern: "^220[- ].*SMTP"
+        product: "SMTP Server"
+        confidence: 60
+
+      # POP3
+      - service: pop3
+        pattern: "^\\+OK.*Dovecot"
+        product: "Dovecot"
+        confidence: 90
+
+      - service: pop3
+        pattern: "^\\+OK"
+        product: "POP3 Server"
+        confidence: 60
+
+      # IMAP
+      - service: imap
+        pattern: "^\\* OK.*Dovecot"
+        product: "Dovecot"
+        confidence: 90
+
+      - service: imap
+        pattern: "^\\* OK.*IMAP"
+        product: "IMAP Server"
+        confidence: 60
+
+      # MySQL
+      - service: mysql
+        pattern: "^.\\x00\\x00\\x00\\x0a([\\d.]+)"
+        product: "MySQL"
+        version: "$1"
+        confidence: 95
+
+      # PostgreSQL
+      - service: postgresql
+        pattern: "^E.*FATAL"
+        product: "PostgreSQL"
+        confidence: 70
+
+      # Redis
+      - service: redis
+        pattern: "^-ERR.*redis"
+        product: "Redis"
+        confidence: 85
+
+      - service: redis
+        pattern: "^\\$\\d+"
+        product: "Redis"
+        confidence: 60
+
+      # HTTP (banner on connect is unusual but some servers do it)
+      - service: http
+        pattern: "^HTTP/[\\d.]+ \\d+"
+        product: "HTTP Server"
+        confidence: 50
+
+      # RDP
+      - service: rdp
+        pattern: "^\\x03\\x00\\x00"
+        product: "Microsoft Terminal Services"
+        confidence: 70
+
+  # ============================================================
+  # Stage 2: Protocol-specific probes
+  # ============================================================
+
+  # --- HTTP GET ---
+  - name: "HTTPGet"
+    protocol: tcp
+    payload: "GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: NetProbe/1.0\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+    ports: [80, 8080, 8000, 8008, 8443, 8888, 3000, 5000, 9000]
+    rarity: 1
+    matches:
+      - service: http
+        pattern: "Server:\\s*Apache/([\\d.]+)"
+        product: "Apache httpd"
+        version: "$1"
+        confidence: 95
+
+      - service: http
+        pattern: "Server:\\s*nginx/([\\d.]+)"
+        product: "nginx"
+        version: "$1"
+        confidence: 95
+
+      - service: http
+        pattern: "Server:\\s*Microsoft-IIS/([\\d.]+)"
+        product: "Microsoft IIS"
+        version: "$1"
+        confidence: 95
+
+      - service: http
+        pattern: "Server:\\s*lighttpd/([\\d.]+)"
+        product: "lighttpd"
+        version: "$1"
+        confidence: 90
+
+      - service: http
+        pattern: "Server:\\s*openresty/([\\d.]+)"
+        product: "OpenResty"
+        version: "$1"
+        confidence: 90
+
+      - service: http
+        pattern: "Server:\\s*Caddy"
+        product: "Caddy"
+        confidence: 85
+
+      - service: http
+        pattern: "Server:\\s*([^\\r\\n]+)"
+        product: "$1"
+        confidence: 70
+
+      - service: http
+        pattern: "^HTTP/[\\d.]+ \\d+"
+        product: "HTTP Server"
+        confidence: 50
+
+  # --- SMTP EHLO ---
+  - name: "SMTPEhlo"
+    protocol: tcp
+    payload: "EHLO netprobe.local\r\n"
+    ports: [25, 465, 587]
+    rarity: 2
+    matches:
+      - service: smtp
+        pattern: "250[- ].*\\b(Postfix)"
+        product: "Postfix"
+        confidence: 90
+
+      - service: smtp
+        pattern: "250[- ].*\\b(Exim)\\s+([\\d.]+)"
+        product: "Exim"
+        version: "$2"
+        confidence: 90
+
+      - service: smtp
+        pattern: "250[- ].*\\bSTARTTLS"
+        product: "SMTP Server (STARTTLS)"
+        confidence: 75
+
+      - service: smtp
+        pattern: "250[- ]"
+        product: "SMTP Server"
+        confidence: 60
+
+  # --- MySQL Handshake ---
+  - name: "MySQLHandshake"
+    protocol: tcp
+    payload: ""
+    ports: [3306, 3307]
+    rarity: 2
+    matches:
+      - service: mysql
+        pattern: "([\\d.]+)-MariaDB"
+        product: "MariaDB"
+        version: "$1"
+        confidence: 95
+
+      - service: mysql
+        pattern: "^.\\x00\\x00\\x00\\x0a([\\d.]+)"
+        product: "MySQL"
+        version: "$1"
+        confidence: 95
+
+  # --- Redis PING ---
+  - name: "RedisPing"
+    protocol: tcp
+    payload: "PING\r\n"
+    ports: [6379]
+    rarity: 2
+    matches:
+      - service: redis
+        pattern: "^\\+PONG"
+        product: "Redis"
+        confidence: 95
+
+      - service: redis
+        pattern: "^-NOAUTH"
+        product: "Redis (auth required)"
+        confidence: 90
+
+  # --- SMB/CIFS Negotiate ---
+  # Simplified SMB negotiate probe
+  - name: "SMBNegotiate"
+    protocol: tcp
+    payload: "\x00\x00\x00\x85\xff\x53\x4d\x42\x72\x00\x00\x00\x00\x18\x53\xc8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xfe\x00\x00\x00\x00\x00\x62\x00\x02\x50\x43\x20\x4e\x45\x54\x57\x4f\x52\x4b\x20\x50\x52\x4f\x47\x52\x41\x4d\x20\x31\x2e\x30\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x31\x2e\x30\x00\x02\x57\x69\x6e\x64\x6f\x77\x73\x20\x66\x6f\x72\x20\x57\x6f\x72\x6b\x67\x72\x6f\x75\x70\x73\x20\x33\x2e\x31\x61\x00\x02\x4c\x4d\x31\x2e\x32\x58\x30\x30\x32\x00\x02\x4c\x41\x4e\x4d\x41\x4e\x32\x2e\x31\x00\x02\x4e\x54\x20\x4c\x4d\x20\x30\x2e\x31\x32\x00"
+    ports: [445, 139]
+    rarity: 3
+    matches:
+      - service: smb
+        pattern: "\\xffSMB"
+        product: "Samba/SMB"
+        confidence: 80
+
+      - service: smb
+        pattern: "\\xfeSMB"
+        product: "SMB2/SMB3"
+        confidence: 85
+
+  # --- RDP Negotiate ---
+  - name: "RDPNegotiate"
+    protocol: tcp
+    payload: "\x03\x00\x00\x13\x0e\xe0\x00\x00\x00\x00\x00\x01\x00\x08\x00\x03\x00\x00\x00"
+    ports: [3389]
+    rarity: 2
+    matches:
+      - service: rdp
+        pattern: "^\\x03\\x00"
+        product: "Microsoft Terminal Services / RDP"
+        confidence: 85
+
+# ============================================================
+# Port-based heuristic fallback (used when no probe matches)
+# ============================================================
+port_hints:
+  21: { service: ftp, confidence: 30 }
+  22: { service: ssh, confidence: 30 }
+  23: { service: telnet, confidence: 30 }
+  25: { service: smtp, confidence: 30 }
+  53: { service: dns, confidence: 30 }
+  80: { service: http, confidence: 25 }
+  110: { service: pop3, confidence: 30 }
+  111: { service: rpcbind, confidence: 25 }
+  135: { service: msrpc, confidence: 25 }
+  139: { service: netbios-ssn, confidence: 25 }
+  143: { service: imap, confidence: 30 }
+  443: { service: https, confidence: 25 }
+  445: { service: microsoft-ds, confidence: 25 }
+  465: { service: smtps, confidence: 25 }
+  587: { service: submission, confidence: 25 }
+  993: { service: imaps, confidence: 25 }
+  995: { service: pop3s, confidence: 25 }
+  1433: { service: ms-sql-s, confidence: 25 }
+  1723: { service: pptp, confidence: 20 }
+  3306: { service: mysql, confidence: 25 }
+  3389: { service: ms-wbt-server, confidence: 25 }
+  5432: { service: postgresql, confidence: 25 }
+  5900: { service: vnc, confidence: 25 }
+  6379: { service: redis, confidence: 25 }
+  8080: { service: http-proxy, confidence: 20 }
+  8443: { service: https-alt, confidence: 20 }
+  27017: { service: mongodb, confidence: 20 }
