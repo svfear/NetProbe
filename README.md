@@ -1,64 +1,53 @@
-# NetProbe — Production-Quality Authorized Security Assessment Tool
+# NetProbe
 
-NetProbe is a modular, high-performance network reconnaissance and port scanning tool written in Python. It is designed as an educational, interview-quality alternative to Nmap's port discovery and service detection capabilities.
+A modular, async-first port scanner and service fingerprinting tool, written in Python. Built as an Nmap-style project to demonstrate real scan engineering — not just "connect and print" — covering TCP/UDP scanning, service/version detection, and proper reporting.
 
 > [!CAUTION]
-> **LEGAL & ETHICAL DISCLAIMER**  
-> This software is intended solely for use against systems and networks that you own or are explicitly authorized to assess. Unauthorized scanning may violate laws, regulations, organizational policies, or contractual agreements. The user is solely responsible for ensuring they have permission before running this tool.
+> **Use this only on systems you own or have explicit written permission to test.** Scanning networks you don't have authorization for can be illegal depending on your jurisdiction and is a breach of most acceptable-use policies. That responsibility is on you, not this tool.
 
 ---
 
-## Key Features
+## What it does
 
-- **Asynchronous Engine**: Leverages Python `asyncio` for highly concurrent, non-blocking network socket operations.
-- **Multiple Scan Techniques**:
-  - **TCP Connect Scan**: Clean, fallback-free mode utilizing standard sockets without requiring elevated privileges.
-  - **TCP SYN Scan (Half-Open)**: Fast, stealthy scan using `scapy` with automatic privilege detection and graceful fallback.
-  - **UDP Scan**: Connectionless scanning with protocol-aware probes (DNS query, NTP request, SNMP sysDescr probe, etc.) and ICMP Unreachable detection.
-- **Data-Driven Service & Version Detection**:
-  - Structured YAML database (`scanner/data/fingerprints.yaml`) for clean signature management.
-  - Four-stage identification pipeline: NULL banner probe &rarr; protocol-specific probes &rarr; TLS certificate inspection &rarr; port heuristic guess.
-  - Regex capture group extraction and confidence-ranked scoring.
-- **TLS Certificate Inspection**: Automatic extraction of certificate subject, issuer, SANs, TLS version, and cipher suite for active TLS ports.
-- **Performance Control**:
-  - **Rate Limiting**: Enforces max packets/connections per second using a token bucket rate limiter.
-  - **Adaptive Timing (T0–T5)**: Dynamically adjusts timeouts using an RFC 6298 smoothed RTT (SRTT) algorithm to match network latency.
-- **Premium Reporting**: Generates human-readable terminal tables, CSVs, JSON, and beautiful glassmorphic dark-mode HTML reports.
+- **TCP Connect scan** — the default. Plain sockets, no special privileges needed.
+- **TCP SYN scan (`-sS`)** — half-open scanning via `scapy`. Needs raw socket access (root / `CAP_NET_RAW`), and falls back to connect scan automatically if it doesn't have it.
+- **UDP scan (`-sU`)** — sends protocol-aware probes (DNS query, NTP request, SNMP sysDescr, etc.) and works out open / open|filtered / closed based on responses vs. ICMP unreachable vs. timeout.
+- **Service & version detection (`-sV`)** — a four-stage pipeline: try a null banner grab first, then protocol-specific probes (HTTP, SMTP EHLO, MySQL handshake, RDP negotiation, SMB, etc.), then TLS cert inspection if relevant, and fall back to a port-based guess if nothing else matches. Signatures live in a YAML file (`scanner/data/fingerprints.yaml`) so adding a new one doesn't mean touching the code.
+- **TLS inspection (`--tls-info`)** — pulls cert subject/issuer/SANs plus the negotiated TLS version and cipher for anything speaking TLS.
+- **Rate limiting** — token-bucket limiter so you don't hammer a target or your own NIC.
+- **Adaptive timing (T0–T5)** — timeout tightens or loosens based on observed RTT instead of one fixed value for every host, loosely modeled on Nmap's timing templates.
+- **Output** — terminal table, JSON, CSV, and an HTML report, all from the same scan.
 
----
-
-## Project Structure
+## Layout
 
 ```text
 PortScanner/
 ├── scanner/
-│   ├── __init__.py              # Package metadata and version info
-│   ├── __main__.py              # Package executable entry point
-│   ├── cli.py                   # Command-line interface and target validation
-│   ├── core.py                  # Core async scan orchestrator
-│   ├── models.py                # Dataclasses and enums
-│   ├── timing.py                # Timing profiles and adaptive RTT logic
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── cli.py                   # argument parsing, target validation
+│   ├── core.py                  # scan orchestration (async)
+│   ├── models.py                # dataclasses / enums shared across modules
+│   ├── timing.py                # timing templates + adaptive RTT
 │   │
 │   ├── scanners/
 │   │   ├── __init__.py          # BaseScanner ABC
-│   │   ├── tcp.py               # TCP Connect & SYN scanners
-│   │   └── udp.py               # UDP protocol-aware scanner
+│   │   ├── tcp.py               # connect + SYN scan
+│   │   └── udp.py
 │   │
 │   ├── services/
-│   │   ├── __init__.py
-│   │   ├── detector.py          # Service detection orchestrator
-│   │   ├── fingerprints.py      # Fingerprint database parser and regex matcher
-│   │   └── tls_inspector.py     # TLS certificate inspector
+│   │   ├── detector.py          # ties the probes + fingerprints together
+│   │   ├── fingerprints.py      # loads and matches the YAML signature db
+│   │   └── tls_inspector.py
 │   │
 │   ├── output/
-│   │   ├── __init__.py
-│   │   ├── table.py             # Rich console table formatter
-│   │   ├── json_output.py       # JSON export formatter
-│   │   ├── csv_output.py        # CSV export formatter
-│   │   └── html_output.py       # Standalone dark-mode HTML report generator
+│   │   ├── table.py
+│   │   ├── json_output.py
+│   │   ├── csv_output.py
+│   │   └── html_output.py
 │   │
 │   └── data/
-│       └── fingerprints.yaml    # Service probe fingerprint database
+│       └── fingerprints.yaml
 │
 ├── tests/
 │   ├── test_models.py
@@ -69,117 +58,83 @@ PortScanner/
 │   ├── test_udp_scanner.py
 │   └── test_output.py
 │
-├── requirements.txt             # Project runtime dependencies
-└── pyproject.toml               # Build system configurations
+├── requirements.txt
+└── pyproject.toml
 ```
 
----
+## Setup
 
-## Installation & Setup
+Needs Python 3.11+.
 
-1. **Prerequisites**: Python 3.11+ is required.
-2. **Install with uv** (recommended for speed and clean environment management):
-   ```bash
-   # Install dependencies in editable mode
-   uv pip install -e .
-   ```
-3. **Alternatively, install via standard pip**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+# recommended
+uv pip install -e .
 
-*Note on TCP SYN Scanning*: If you plan to use SYN scanning (`-sS`), `scapy` requires Raw Socket access. Run the terminal as root/Administrator:
-- On Linux/macOS: Run with `sudo`
-- On Windows: Install Npcap (or WinPcap) and run the command in an elevated PowerShell/CMD session.
+# or just pip
+pip install -r requirements.txt
+```
 
----
+If you want SYN scanning (`-sS`), `scapy` needs raw socket access:
+- Linux/macOS: run with `sudo`
+- Windows: install Npcap, then run from an elevated shell
 
-## Usage Guide
+Everything else runs fine unprivileged.
 
-Run NetProbe using Python module syntax:
+## Using it
+
 ```bash
 python -m scanner <targets> [options]
 ```
 
-### 1. Target Selection
-NetProbe accepts hostnames, single IPs, CIDR ranges, and files containing targets.
+**Targets** — hostname, single IP, CIDR range, or a file of targets:
 ```bash
-# Scan single IP
 python -m scanner 192.168.1.5
-
-# Scan hostname
 python -m scanner scanme.nmap.org
-
-# Scan CIDR subnet range
 python -m scanner 10.0.0.0/24
-
-# Scan targets from a file
 python -m scanner -iL targets.txt
 ```
 
-### 2. Port Selection
-Specify ports by number, range, list, or top common count.
+**Ports** — explicit list, range, or the N most common:
 ```bash
-# Custom list of ports
 python -m scanner 192.168.1.1 -p 22,80,443
-
-# Port ranges
 python -m scanner 192.168.1.1 -p 1-1024
-
-# Top common ports (e.g. top 50 common ports)
 python -m scanner 192.168.1.1 --top-ports 50
 ```
 
-### 3. Scan Techniques
+**Scan type:**
 ```bash
-# TCP Connect Scan (Default)
-python -m scanner 192.168.1.1 -sT
-
-# TCP SYN Scan (Stealth / Half-open - requires elevated privileges)
-python -m scanner 192.168.1.1 -sS
-
-# UDP Scan (Protocol-aware)
-python -m scanner 192.168.1.1 -sU
+python -m scanner 192.168.1.1 -sT   # connect scan (default)
+python -m scanner 192.168.1.1 -sS   # SYN scan, needs privileges
+python -m scanner 192.168.1.1 -sU   # UDP
 ```
 
-### 4. Service Versioning & TLS Inspection
+**Service detection:**
 ```bash
-# Enable Service & Version detection
 python -m scanner 192.168.1.1 -sV
-
-# Enable Service detection + TLS Certificate analysis
 python -m scanner 192.168.1.1 -sV --tls-info
 ```
 
-### 5. Timing Profiles (T0–T5)
-Choose timing profile ranging from T0 (slow, paranoid) to T5 (fast, CTF-insane). Default is T3.
+**Timing** — T0 (slow/careful) through T5 (fast, CTF-style), default T3:
 ```bash
 python -m scanner 192.168.1.1 -T4
 ```
 
-### 6. Output Export
-Generate multiple report formats simultaneously.
+**Output** — can generate several formats from one run:
 ```bash
 python -m scanner 192.168.1.1 -p 1-1000 -sV -oN report.txt -oJ report.json -oC report.csv -oH report.html
 ```
 
----
+## Being polite on the wire
 
-## Performance Tuning
-To limit connection rates on fragile networks, specify rate limit (max connections/second):
+If you're scanning something that can't take a beating (or you just don't want to trip an IDS), cap the rate:
 ```bash
-# Limit to 50 connections/probes per second
-python -m scanner 192.168.1.1 --rate-limit 50
+python -m scanner 192.168.1.1 --rate-limit 50   # max 50 connections/sec
 ```
 
----
+## Tests
 
-## Development & Test suite
-NetProbe includes a complete pytest unit test suite that executes completely locally without generating live network traffic.
+All tests run against mocked sockets — no live traffic, safe to run anywhere.
 ```bash
-# Install development dependencies
 uv pip install -e .[dev]
-
-# Run all unit tests
 uv run pytest -v -W error
 ```
