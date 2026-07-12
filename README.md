@@ -49,14 +49,6 @@ PortScanner/
 │   └── data/
 │       └── fingerprints.yaml
 │
-├── tests/
-│   ├── test_models.py
-│   ├── test_ports.py
-│   ├── test_targets.py
-│   ├── test_fingerprints.py
-│   ├── test_tcp_scanner.py
-│   ├── test_udp_scanner.py
-│   └── test_output.py
 │
 ├── requirements.txt
 └── pyproject.toml
